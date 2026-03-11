@@ -29,4 +29,4 @@ fn test(id: &str) {
     assert!(output.success);
 }
 
-unsafe_libyaml_test_suite::test_parser!();
+libyaml_rs_test_suite::test_parser!();

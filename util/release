@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Get current version from Cargo.toml
+get_version() {
+  grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2
+}
+
+VERSION=$(get_version)
+
+main() {
+  "do-$1"
+}
+
+do-release-check() {
+  VERSION=$(get_version)
+  # Use NEW_VERSION from env for the confirmation message
+  TARGET_VERSION=${NEW_VERSION:-$VERSION}
+  echo "Starting release process: $VERSION -> $TARGET_VERSION"
+  echo ""
+
+  do-check-clean
+  do-check-version
+  do-check-tag
+
+  echo ""
+  read -r -p "Create tag $TARGET_VERSION and publish to crates.io? [y/N] " answer
+  if [[ ! ${answer:-N} =~ ^[Yy] ]]; then
+    echo "Release cancelled"
+    exit 1
+  fi
+}
+
+# Bump version in Cargo.toml
+# Usage: util/release version-bump o=0.10.0 n=0.10.1
+do-version-bump() {
+  if ! [[ ${OLD_VERSION:-} && ${NEW_VERSION:-} ]]; then
+    die 'Usage: make version-bump o=OLD_VERSION n=NEW_VERSION'
+  fi
+
+  echo "Bumping version from $OLD_VERSION to $NEW_VERSION..."
+
+  # Update Cargo.toml
+  perl -pi -e "s/^version = \"$OLD_VERSION\"/version = \"$NEW_VERSION\"/" Cargo.toml
+
+  # Update src/lib.rs html_root_url
+  perl -pi -e \
+    "s|html_root_url = \"https://docs.rs/libyaml-rs/$OLD_VERSION\"|html_root_url = \"https://docs.rs/libyaml-rs/$NEW_VERSION\"|" \
+    src/lib.rs
+
+  # Verify the change
+  NEW_VER=$(get_version)
+  if [[ $NEW_VER != "$NEW_VERSION" ]]; then
+    die "ERROR: Version bump failed. Expected $NEW_VERSION, got $NEW_VER"
+  fi
+
+  echo "Version updated in Cargo.toml and src/lib.rs"
+  echo "Next steps:"
+  echo "  1. Review the changes: git diff"
+  echo "  2. Commit: git commit -am 'Release $NEW_VERSION'"
+  echo "  3. Continue release: make release-tag release-publish"
+}
+
+# Check that VERSION matches Cargo.toml
+do-check-version() {
+  CARGO_VERSION=$(get_version)
+  [[ $CARGO_VERSION == "$VERSION" ]] ||
+    die "ERROR: VERSION=$VERSION does not match Cargo.toml version: $CARGO_VERSION"
+  echo "Version check passed: $VERSION"
+}
+
+# Check if git tag already exists
+do-check-tag() {
+  TARGET_VERSION=${NEW_VERSION:-$(get_version)}
+  if git rev-parse "$TARGET_VERSION" >/dev/null 2>&1; then
+    die "ERROR: Tag $TARGET_VERSION already exists"
+  fi
+  echo "Tag $TARGET_VERSION does not exist - OK to proceed"
+}
+
+# Check working directory is clean
+do-check-clean() {
+  if [[ -n $(git status --porcelain) ]]; then
+    die "ERROR: Working directory is not clean. Commit or stash changes first."
+  fi
+  echo "Working directory is clean"
+}
+
+# Create git tag locally (does not push)
+do-release-tag() {
+  VERSION=$(get_version)
+
+  if git rev-parse "$VERSION" >/dev/null 2>&1; then
+    die "ERROR: Tag $VERSION already exists"
+  fi
+
+  # Commit version changes before tagging
+  git add Cargo.toml src/lib.rs
+  git commit -m "Release $VERSION"
+
+  echo "Creating tag $VERSION..."
+  git tag "$VERSION"
+
+  echo "Tag $VERSION created locally"
+}
+
+# Push commit and tag to origin (runs after successful publish)
+do-release-push() {
+  VERSION=$(get_version)
+
+  echo "Pushing commit and tag $VERSION to origin..."
+  git push origin main "$VERSION"
+
+  echo "Release $VERSION pushed to GitHub"
+}
+
+die() {
+  printf '%s\n' "$@" >&2
+  exit 1
+}
+
+main "$@"

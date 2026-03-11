@@ -28,4 +28,4 @@ fn test(id: &str) {
     }
 }
 
-unsafe_libyaml_test_suite::test_parser_error!();
+libyaml_rs_test_suite::test_parser_error!();
