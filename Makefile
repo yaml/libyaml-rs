@@ -13,6 +13,9 @@ MAKES-CLEAN := \
   target \
   Cargo.lock \
 
+MAKES-REALCLEAN := \
+ tests/data/yaml-test-suite \
+
 CARGO-TARGETS := \
   build \
   check \
